@@ -1,9 +1,11 @@
 local nametags = {}
+local show_tag = {}
+local ATTACH_POSITION = minetest.rgba and {x=0,y=18,z=0} or {x=0,y=9,z=0}
 
 local function add_tag(player)
-	local pos = player:get_pos()
-	local ent = minetest.add_entity(pos, "playertag:tag")
+	local ent = minetest.add_entity(player:get_pos(), "playertag:tag")
 
+	-- Build name from font texture
 	local color = "W"
 	local texture = "npcf_tag_bg.png"
 	local x = math.floor(134 - ((player:get_player_name():len() * 11) / 2))
@@ -17,16 +19,23 @@ local function add_tag(player)
 	end)
 	ent:set_properties({ textures={texture} })
 
-	if ent ~= nil then
-		 ent:set_attach(player, "", {x=0,y=9,z=0}, {x=0,y=0,z=0})
-		 nametags[player:get_player_name()] = ent
-		 ent = ent:get_luaentity()
-		 ent.wielder = player
-	end
-	--minetest.chat_send_all("tag made for "..player:get_player_name())
+	-- Attach to player
+	ent:set_attach(player, "", ATTACH_POSITION, {x=0,y=0,z=0})
+	ent:get_luaentity().wielder = player:get_player_name()
+
+	-- Store
+	nametags[player:get_player_name()] = ent
+
+	-- Hide fixed nametag
+	player:set_nametag_attributes({
+		color = {a = 0, r = 0, g = 0, b = 0}
+	})
+
+	show_tag[player:get_player_name()] = true
 end
 
 local function remove_tag(player)
+	show_tag[player:get_player_name()] = nil
 	local tag = nametags[player:get_player_name()]
 	if tag then
 		tag:remove()
@@ -41,28 +50,34 @@ local nametag = {
 	visual = "sprite",
 	textures = {"default_dirt.png"},--{"npcf_tag_bg.png"},
 	visual_size = {x=2.16, y=0.18, z=2.16},--{x=1.44, y=0.12, z=1.44},
-	on_activate = function(self, staticdata, dtime_s)
-		if staticdata == "expired" then
-			if self.wielder then
-				remove_tag(wielder)
-			else
-				self.object:remove()
-			end
-		end
-	end,
-	get_staticdata = function(self)
-		return "expired"
-	end,
 }
 
+function nametag:on_activate(staticdata, dtime_s)
+	if staticdata == "expired" then
+		local name = self.wielder and self.wielder:get_player_name()
+		if name and nametags[name] == self.object then
+			nametags[name] = nil
+		end
+
+		self.object:remove()
+	end
+end
+
+function nametag:get_staticdata()
+	return "expired"
+end
+
 function nametag:on_step(dtime)
-	local wielder = self.wielder
-	if wielder == nil then
+	local name = self.wielder
+	local wielder = name and minetest.get_player_by_name(name)
+	if not wielder then
 		self.object:remove()
-	elseif minetest.get_player_by_name(wielder:get_player_name()) == nil then
+	elseif not show_tag[name] then
+		if name and nametags[name] == self.object then
+			nametags[name] = nil
+		end
+
 		self.object:remove()
-	else
-		--self.object:set_attach(wielder, "", {x=0,y=9,z=0}, {x=0,y=0,z=0})
 	end
 end
 
@@ -70,11 +85,14 @@ minetest.register_entity("playertag:tag", nametag)
 
 local function step()
 	for _, player in pairs(minetest.get_connected_players()) do
-		if nametags[player:get_player_name()]:get_luaentity() == nil then
-			add_tag(player)
-			--minetest.chat_send_all("tag made for "..player:get_player_name())
-		else
-			nametags[player:get_player_name()]:set_attach(player, "", {x=0,y=9,z=0}, {x=0,y=0,z=0})
+		local show = show_tag[player:get_player_name()]
+		if show then
+			local ent = nametags[player:get_player_name()]
+			if not ent or ent:get_luaentity() == nil then
+				add_tag(player)
+			else
+				ent:set_attach(player, "", ATTACH_POSITION, {x=0,y=0,z=0})
+			end
 		end
 	end
 
@@ -91,11 +109,6 @@ minetest.register_globalstep(function(player)
 end)
 
 minetest.register_on_joinplayer(function(player)
-	if not player.tag then
-		player:set_nametag_attributes({
-			color = {a = 0, r = 0, g = 0, b = 0}
-		})
-	end
 	add_tag(player)
 end)
 
